@@ -22,7 +22,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 from utils import answer_rich, edit_rich
-from text_catalog import text as t, RichText
+from text_catalog import text as t
 import crypto
 import vpn_panel
 import uniquepay
@@ -35,24 +35,18 @@ from handlers.marzban_admin import auto_fulfill_vip_via_marzban, auto_fulfill_cu
 import bot_info
 
 
-def _render_card_invoice_text(key: str, default: str, values: dict, deadline_str: str) -> RichText:
-    """Render invoice through the RichText catalog so DB-stored Premium Emoji entities survive."""
-    rich_values = dict(values)
-    # Do not inject HTML tags here: RichText entities use Telegram UTF-16 offsets,
-    # and parse_mode markup would shift those offsets.
-    for field in ("card_number", "card_holder", "plan_name"):
-        value = rich_values.get(field)
-        if isinstance(value, str):
-            rich_values[field] = value.replace("<code>", "").replace("</code>", "")
-
-    body = t(key, default=default, **rich_values)
-    expiry = RichText(
+def _render_card_invoice_text(key: str, default: str, values: dict, deadline_str: str) -> str:
+    """Render editable invoice body, while keeping the expiry sentence fully system-controlled."""
+    template = db.get_text_override(key, default)
+    try:
+        body = template.format_map(values)
+    except (KeyError, ValueError, IndexError):
+        body = default.format_map(values)
+    expiry = (
         f"⏱ این شماره کارت و قیمت تا ساعت {deadline_str} (۳۰ دقیقه) معتبر است. "
         "لطفاً تا این ساعت رسید پرداخت را ارسال کنید، وگرنه این فاکتور به‌طور خودکار منقضی و حذف می‌شود."
     )
-    if isinstance(body, RichText):
-        return body + "\n\n" + expiry
-    return RichText(str(body) + "\n\n" + str(expiry), getattr(body, "entities", []))
+    return f"{body}\n\n{expiry}"
 
 
 PLAN_CARD_INVOICE_DEFAULT = (
@@ -789,7 +783,7 @@ async def pay_with_card(callback: types.CallbackQuery, state: FSMContext):
                 "amount": final_price,
                 # 🆕 فیکس: شماره کارت داخل تگ <code> قرار می‌گیرد تا در تلگرام به‌صورت مونواسپیس
                 # نمایش داده شود و با یک لمس ساده قابل کپی باشد (همراه با parse_mode="HTML" پایین).
-                "card_number": html.escape(bot_info.get('card_number') or ''),
+                "card_number": f"<code>{html.escape(bot_info.get('card_number') or '')}</code>",
                 "card_holder": html.escape(bot_info.get("card_holder") or ""),
             },
             deadline_str,
@@ -958,43 +952,51 @@ async def view_config(callback: types.CallbackQuery):
     # -----------------------------------------------------------------
     try:
 
-        text = f"📦 {cfg['plan']}\n\n"
-
         try:
             usage = await fetch_subscription_info(decrypted)
         except Exception:
             logger.exception("خطای غیرمنتظره در fetch_subscription_info برای cfg_id=%s", cfg_id)
             usage = None
+
+        total = used = remaining_bytes = None
+        percent = 0
+        bar = usage_bar(0)
+        expiry = cfg.get("expiry") or "-"
+        expiry_status = ""
+
         if usage:
             total = usage.get("total")
             used = (usage.get("upload") or 0) + (usage.get("download") or 0)
-            remaining = (total - used) if total else None
-
-            text += t("config_status_title") + "\n"
-            if total:
-                text += t("config_total", value=format_bytes(total)) + "\n"
-            text += t("config_used", value=format_bytes(used)) + "\n"
-            if remaining is not None:
-                text += t("config_remaining", value=format_bytes(remaining)) + "\n"
+            remaining_bytes = (total - used) if total else None
+            expiry = format_expire(usage.get("expire"))
             if total:
                 percent = min(100, round(used / total * 100))
-                text += "\n" + t("config_percent", bar=usage_bar(percent), percent=percent) + "\n"
-            text += "\n" + t("config_expiry", value=format_expire(usage.get("expire"))) + "\n"
-            remaining = days_remaining(usage.get("expire"))
-            if remaining is not None:
-                text += (t("config_expired") + "\n\n" if remaining <= 0 else t("config_days_left", days=remaining) + "\n\n")
-            else:
-                text += "\n"
-        elif cfg["expiry"]:
-            text += t("config_expiry", value=cfg["expiry"]) + "\n"
+                bar = usage_bar(percent)
+            remaining_days = days_remaining(usage.get("expire"))
+            if remaining_days is not None:
+                expiry_status = t("config_expired") if remaining_days <= 0 else t("config_days_left", days=remaining_days)
+        elif cfg.get("expiry"):
+            expiry = cfg["expiry"]
             try:
                 _exp_dt = datetime.strptime(str(cfg["expiry"])[:10], "%Y-%m-%d")
                 _remaining_days = (_exp_dt - now_tehran_naive()).days
-                text += (t("config_expired") + "\n\n" if _remaining_days <= 0 else t("config_days_left", days=_remaining_days) + "\n\n")
+                expiry_status = t("config_expired") if _remaining_days <= 0 else t("config_days_left", days=_remaining_days)
             except Exception:
-                text += "\n"
+                expiry_status = ""
 
-        text += t("config_subscription_help") + "\n\n" + f"`{decrypted}`" + "\n\n" + t("config_purchase_date", date=cfg["created_at"])
+        text = t(
+            "service_detail_text",
+            plan=cfg.get("plan", ""),
+            total=format_bytes(total) if total else "-",
+            used=format_bytes(used or 0),
+            remaining=format_bytes(remaining_bytes) if remaining_bytes is not None else "-",
+            bar=bar,
+            percent=percent,
+            expiry=expiry,
+            expiry_status=expiry_status,
+            link=decrypted,
+            purchase_date=cfg.get("created_at", "-"),
+        )
 
         kb = config_detail_keyboard(cfg_id, sub_link_url=sub_url, has_qr=bool(cfg.get("qr_file_id")), service_id=cfg.get("service_id"), disabled=bool(cfg.get("disabled")))
         try:

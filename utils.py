@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram.types import FSInputFile
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from keyboards import main_reply_keyboard
 import database as db
@@ -113,6 +113,90 @@ def adjust_entities_for_replacement(entities: list, old_text: str, new_text: str
     return out
 
 
+
+def _entity_span_is_valid(text: str, ent) -> bool:
+    try:
+        off, length = int(ent.offset), int(ent.length)
+    except Exception:
+        return False
+    if off < 0 or length <= 0:
+        return False
+    total = telegram_utf16_length(text)
+    end = off + length
+    if end > total:
+        return False
+    used = 0
+    boundaries = {0}
+    for ch in text:
+        used += 2 if ord(ch) > 0xFFFF else 1
+        boundaries.add(used)
+    return off in boundaries and end in boundaries
+
+
+def _sanitize_entities_for_text(text: str, entities) -> list:
+    from aiogram.types import MessageEntity
+    out=[]
+    for raw in entities or []:
+        try:
+            ent = MessageEntity(**raw) if isinstance(raw, dict) else raw
+            if _entity_span_is_valid(text, ent):
+                out.append(ent)
+        except Exception:
+            continue
+    return out
+
+
+async def _repair_custom_emoji_entities(bot, text: str, entities):
+    """Validate stored entities and relocate custom emojis after text changes."""
+    valid = _sanitize_entities_for_text(text, entities)
+    custom=[]; result=[]
+    for ent in valid:
+        typ = ent.type.value if hasattr(ent.type, 'value') else str(ent.type)
+        if typ == 'custom_emoji' and getattr(ent, 'custom_emoji_id', None):
+            custom.append(ent)
+        else:
+            result.append(ent)
+    if not custom:
+        return result
+    cache=getattr(bot, '_premium_emoji_alt_cache', None)
+    if cache is None:
+        cache={}
+        try: setattr(bot, '_premium_emoji_alt_cache', cache)
+        except Exception: pass
+    ids=[str(e.custom_emoji_id) for e in custom if str(e.custom_emoji_id) not in cache]
+    if ids:
+        try:
+            stickers=await bot.get_custom_emoji_stickers(custom_emoji_ids=ids)
+            for sticker in stickers or []:
+                sid=getattr(sticker,'custom_emoji_id',None); alt=getattr(sticker,'emoji',None)
+                if sid and alt: cache[str(sid)]=str(alt)
+        except Exception:
+            pass
+    def u16(s): return len((s or '').encode('utf-16-le'))//2
+    def py_from_u16(s, units):
+        used=0
+        for i,ch in enumerate(s):
+            if units == used: return i
+            used += 2 if ord(ch)>0xFFFF else 1
+            if units == used: return i+1
+            if used > units: return i
+        return len(s)
+    for ent in custom:
+        alt=cache.get(str(ent.custom_emoji_id))
+        if alt:
+            hits=[]; start=0
+            while True:
+                pos=text.find(alt,start)
+                if pos<0: break
+                hits.append(pos); start=pos+1
+            if hits:
+                old_py=py_from_u16(text,int(ent.offset))
+                pos=min(hits,key=lambda x:abs(x-old_py))
+                result.append(ent.model_copy(update={'offset':u16(text[:pos]),'length':u16(alt)}))
+                continue
+    return _sanitize_entities_for_text(text, result)
+
+
 def truncate_text_and_entities(text: str, entities: list | None, limit: int = TELEGRAM_TEXT_LIMIT):
     """نسخه‌ی کوتاه‌شده‌ی متن را همراه Entityهای سالمِ باقی‌مانده برمی‌گرداند."""
     safe = truncate_for_telegram(text, limit)
@@ -125,106 +209,96 @@ def truncate_text_and_entities(text: str, entities: list | None, limit: int = TE
     return safe, kept
 
 async def send_photo_rich(bot, chat_id, photo, caption=None, **kwargs):
-    """Send a photo while preserving RichText caption entities."""
-    entities = getattr(caption, "entities", None) or None
+    entities=getattr(caption,'entities',None) or None
     if entities:
-        from aiogram.types import MessageEntity
-        normalized=[]
-        for raw in entities:
-            try:
-                normalized.append(MessageEntity(**raw) if isinstance(raw, dict) else raw)
-            except Exception:
-                continue
-        kwargs.pop("parse_mode", None)
+        normalized=await _repair_custom_emoji_entities(bot,str(caption),entities)
+        kwargs.pop('parse_mode',None)
         try:
-            return await bot.send_photo(chat_id=chat_id, photo=photo, caption=str(caption), caption_entities=normalized or None, parse_mode=None, **kwargs)
-        except Exception as exc:
-            if "ENTITY_TEXT_INVALID" not in str(exc).upper():
-                raise
-    return await bot.send_photo(chat_id=chat_id, photo=photo, caption=None if caption is None else str(caption), **kwargs)
+            return await bot.send_photo(chat_id=chat_id,photo=photo,caption=str(caption),caption_entities=normalized or None,parse_mode=None,**kwargs)
+        except TelegramBadRequest as exc:
+            if 'ENTITY_TEXT_INVALID' not in str(exc).upper(): raise
+        except TelegramForbiddenError:
+            return None
+    try:
+        return await bot.send_photo(chat_id=chat_id,photo=photo,caption=None if caption is None else str(caption),**kwargs)
+    except TelegramForbiddenError:
+        return None
 
 
 async def edit_caption_rich(target, caption, **kwargs):
-    """Edit a media caption while preserving RichText entities."""
-    entities = getattr(caption, "entities", None) or None
+    entities=getattr(caption,'entities',None) or None
     if entities:
-        from aiogram.types import MessageEntity
-        normalized=[]
-        for raw in entities:
-            try:
-                normalized.append(MessageEntity(**raw) if isinstance(raw, dict) else raw)
-            except Exception:
-                continue
-        kwargs.pop("parse_mode", None)
+        bot=getattr(target,'bot',None)
+        normalized=await _repair_custom_emoji_entities(bot,str(caption),entities) if bot else _sanitize_entities_for_text(str(caption),entities)
+        kwargs.pop('parse_mode',None)
         try:
-            return await target.edit_caption(caption=str(caption), caption_entities=normalized or None, parse_mode=None, **kwargs)
-        except Exception as exc:
-            if "ENTITY_TEXT_INVALID" not in str(exc).upper():
-                raise
-    return await target.edit_caption(caption=str(caption), **kwargs)
+            return await target.edit_caption(caption=str(caption),caption_entities=normalized or None,parse_mode=None,**kwargs)
+        except TelegramBadRequest as exc:
+            if 'ENTITY_TEXT_INVALID' not in str(exc).upper(): raise
+        except TelegramForbiddenError:
+            return None
+    try:
+        return await target.edit_caption(caption=str(caption),**kwargs)
+    except TelegramForbiddenError:
+        return None
 
 
 async def send_rich(bot, chat_id, value=None, **kwargs):
-    """Send text through Bot while preserving RichText Telegram entities."""
-    if value is None and "text" in kwargs:
-        value = kwargs.pop("text")
-    entities = getattr(value, "entities", None) or None
+    if value is None and 'text' in kwargs: value=kwargs.pop('text')
+    text=str(value)
+    entities=getattr(value,'entities',None) or None
     if entities:
-        from aiogram.types import MessageEntity
-        normalized = []
-        for raw in entities:
-            try:
-                normalized.append(MessageEntity(**raw) if isinstance(raw, dict) else raw)
-            except Exception:
-                continue
-        kwargs.pop("parse_mode", None)
+        normalized=await _repair_custom_emoji_entities(bot,text,entities)
+        kwargs.pop('parse_mode',None)
         try:
-            return await bot.send_message(chat_id=chat_id, text=str(value), entities=normalized or None, parse_mode=None, **kwargs)
-        except Exception as exc:
-            if "ENTITY_TEXT_INVALID" not in str(exc).upper():
-                raise
-            logger.warning("Stored Telegram entities rejected while sending rich text; falling back to plain text: %s", exc)
-    return await bot.send_message(chat_id=chat_id, text=str(value), **kwargs)
+            return await bot.send_message(chat_id=chat_id,text=text,entities=normalized or None,parse_mode=None,**kwargs)
+        except TelegramBadRequest as exc:
+            if 'ENTITY_TEXT_INVALID' not in str(exc).upper(): raise
+            logger.warning('Stored Telegram entities rejected; retrying plain text.')
+        except TelegramForbiddenError:
+            logger.info('کاربر %s ارسال پیام را مسدود کرده است؛ ارسال نادیده گرفته شد.',chat_id)
+            return None
+    try:
+        return await bot.send_message(chat_id=chat_id,text=text,**kwargs)
+    except TelegramForbiddenError:
+        logger.info('کاربر %s ارسال پیام را مسدود کرده است؛ ارسال نادیده گرفته شد.',chat_id)
+        return None
 
 
 async def answer_rich(target, value, **kwargs):
-    """Send editable text while preserving Telegram MessageEntity metadata."""
-    entities = getattr(value, "entities", None) or None
+    text=str(value); entities=getattr(value,'entities',None) or None
     if entities:
-        from aiogram.types import MessageEntity
-        normalized = []
-        for raw in entities:
-            try:
-                normalized.append(MessageEntity(**raw) if isinstance(raw, dict) else raw)
-            except Exception:
-                continue
-        kwargs.pop("parse_mode", None)
+        bot=getattr(target,'bot',None)
+        normalized=await _repair_custom_emoji_entities(bot,text,entities) if bot else _sanitize_entities_for_text(text,entities)
+        kwargs.pop('parse_mode',None)
         try:
-            return await target.answer(text=str(value), entities=normalized or None, parse_mode=None, **kwargs)
-        except Exception as exc:
-            if "ENTITY_TEXT_INVALID" not in str(exc).upper():
-                raise
-    return await target.answer(text=str(value), **kwargs)
+            return await target.answer(text=text,entities=normalized or None,parse_mode=None,**kwargs)
+        except TelegramBadRequest as exc:
+            if 'ENTITY_TEXT_INVALID' not in str(exc).upper(): raise
+        except TelegramForbiddenError:
+            return None
+    try:
+        return await target.answer(text=text,**kwargs)
+    except TelegramForbiddenError:
+        return None
 
 
 async def edit_rich(target, value, **kwargs):
-    """Edit a message while preserving Telegram MessageEntity metadata."""
-    entities = getattr(value, "entities", None) or None
+    text=str(value); entities=getattr(value,'entities',None) or None
     if entities:
-        from aiogram.types import MessageEntity
-        normalized = []
-        for raw in entities:
-            try:
-                normalized.append(MessageEntity(**raw) if isinstance(raw, dict) else raw)
-            except Exception:
-                continue
-        kwargs.pop("parse_mode", None)
+        bot=getattr(target,'bot',None)
+        normalized=await _repair_custom_emoji_entities(bot,text,entities) if bot else _sanitize_entities_for_text(text,entities)
+        kwargs.pop('parse_mode',None)
         try:
-            return await target.edit_text(text=str(value), entities=normalized or None, parse_mode=None, **kwargs)
-        except Exception as exc:
-            if "ENTITY_TEXT_INVALID" not in str(exc).upper():
-                raise
-    return await target.edit_text(text=str(value), **kwargs)
+            return await target.edit_text(text=text,entities=normalized or None,parse_mode=None,**kwargs)
+        except TelegramBadRequest as exc:
+            if 'ENTITY_TEXT_INVALID' not in str(exc).upper(): raise
+        except TelegramForbiddenError:
+            return None
+    try:
+        return await target.edit_text(text=text,**kwargs)
+    except TelegramForbiddenError:
+        return None
 
 
 def get_main_keyboard(user_id):
@@ -582,11 +656,16 @@ async def show_menu_with_sticker(
             except Exception:
                 logger.exception("خطا در ارسال استیکر تست '%s'", sticker_key)
 
+    # همیشه Entityها را نسبت به متن نهایی اعتبارسنجی/ترمیم کن؛ مخصوصاً بعد از جایگزینی placeholderها.
+    if entities:
+        entities = await _repair_custom_emoji_entities(bot, str(text), entities)
+        parse_mode = None
+
     # پیام نامرئی ارسال نمی‌کنیم؛ Telegram ممکن است کاراکترهای نامرئی را
     # MESSAGE_EMPTY تشخیص دهد. پیام اصلی منو در ادامه‌ی همین تابع ارسال می‌شود.
 
     try:
-        menu_msg = await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode, entities=entities)
+        menu_msg = await bot.send_message(chat_id=chat_id, text=str(text), reply_markup=reply_markup, parse_mode=parse_mode, entities=entities or None)
     except TelegramBadRequest as e:
         # 🆕 فیکس: اگر متنی که ادمین از پنل ویرایش کرده (مثلاً پیام خوش‌آمدگویی /start یا هر متن قابل‌ویرایش دیگری) از سقف مجاز تلگرام برای متن پیام (۴۰۹۶ کاراکتر) بلندتر باشد، تلگرام خطای «Bad Request: MESSAGE_TOO_LONG» برمی‌گرداند و قبلاً هیچ‌وقت دوباره تلاشی نمی‌شد (چون فقط حالت parse_mode دست‌کاری می‌شد)؛ برای کاربرانی که تازه روی /start می‌زدند (بیشتر از همه کاربران جدید) کل منوی /start با ارور مواجه می‌شد. حالا اگر خطا دقیقاً همین باشد، متن کوتاه شده دوباره فرستاده می‌شود تا کاربر هیچ‌وقت با خطا مواجه نشود.
         if is_message_too_long_error(e):
@@ -607,7 +686,7 @@ async def show_menu_with_sticker(
             # 🆕 فیکس: اگر متن (مثلاً متن سفارشی ویرایش کارت که ادمین از پنل ویرایش کرده) شامل کاراکترهای خاص HTML/Markdown نامعتبر (مثلاً < یا > تکی بدون بسته شدن) باشد و تلگرام نتواند پارسش کند، یا حتی خودِ reply_markup (مثلاً لینک نامعتبر یک دکمه‌ی کانال اجباری) مشکل داشته باشد، قبلاً فقط parse_mode دوباره تلاش می‌شد و اگر مشکل از کیبورد بود همان تلاش دوباره هم شکست می‌خورد و کاربر هیچ پیامی دریافت نمی‌کرد. حالا اگر تلاش دوم هم شکست بخورد، آخرین لایه‌ی محافظتی (بدون کیبورد/فرمت) اجرا می‌شود.
             logger.exception("خطا در ارسال پیام منو با parse_mode='%s'، دوباره بدون فرمت ارسال می‌شود", parse_mode)
             try:
-                menu_msg = await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=None)
+                menu_msg = await bot.send_message(chat_id=chat_id, text=str(text), reply_markup=reply_markup, parse_mode=None, entities=None)
             except Exception:
                 logger.exception("خطای غیرمنتظره‌ی دیگر (احتمالاً خودِ کیبورد/دکمه نامعتبر است)؛ آخرین تلاش بدون کیبورد/فرمت انجام می‌شود")
                 menu_msg = await _send_last_resort_menu_message(bot, chat_id, text)
@@ -646,6 +725,8 @@ async def send_notification_sticker(bot, chat_id: int, sticker_key: str) -> None
         return
     try:
         await bot.send_sticker(chat_id, sticker=override["file_id"])
+    except TelegramForbiddenError:
+        logger.info("کاربر %s ربات را مسدود کرده؛ استیکر اطلاع‌رسانی نادیده گرفته شد.", chat_id)
     except Exception:
         logger.exception("خطا در ارسال استیکر اطلاع‌رسانی '%s'", sticker_key)
 

@@ -127,7 +127,7 @@ TEXT_CATEGORIES = OrderedDict({
         ('my_configs_has', '📱 سرویس\u200cهای شما\n\nکدوم دسته رو می\u200cخوای ببینی؟ 👇'),
         ('vip_configs_empty', 'شما هنوز هیچ سرویس VIPی خریداری نکرده\u200cاید.'),
         ('vip_configs_has', 'سرویس\u200cهای VIP شما\n\nبرای مشاهده\u200cی لینک سابسکریپشن و مدیریت هرکدام، روی نام آن بزنید 👇'),
-        ('service_detail_text', '📦 {plan}\n\n📊 وضعیت مصرف (لحظه\u200cای):\n💿 حجم کل: {total}\n📲 مصرف\u200cشده: {used}\n📱 باقی\u200cمانده: {remaining}\n\n{bar} {percent}٪ مصرف شده\n\n⏰ تاریخ انقضا: {expiry}\n{expiry_status}\n\n🔗 این لینک ساب (Subscription) شماست؛ می\u200cتوانید کانفیگ\u200cهای خودتان را از داخل آن بردارید و حجم مصرفی\u200cتان را مدیریت کنید:\n\n`{link}`\n\n📆 تاریخ خرید: {purchase_date}'),
+        ('service_detail_text', '📦 {plan}\n\n📊وضعیت مصرف (لحظه\u200cای):\n💿 حجم کل: {total}\n📲 مصرف\u200cشده: {used}\n📱 باقی\u200cمانده: {remaining}\n\n{bar} {percent}٪ مصرف شده\n\n⏰ تاریخ انقضا: {expiry}\n{expiry_status}\n\n🔗 این لینک ساب (Subscription) شماست؛ می\u200cتوانید کانفیگ\u200cهای خودتان را از داخل آن بردارید و حجم مصرفی\u200cتان را مدیریت کنید:\n\n`{link}`\n\n📆 تاریخ خرید: {purchase_date}'),
         ('config_detail_error', '❌ خطا در نمایش جزئیات سرویس. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'),
         ('config_status_title', '📊 وضعیت مصرف (لحظه\u200cای):'),
         ('config_total', '   • حجم کل: {value}'),
@@ -333,7 +333,7 @@ TEXT_CATEGORIES.setdefault("📦 تحویل سرویس", []).extend([
      "📋 لینک را کپی کنید و داخل برنامه‌تان جایگذاری کنید.\n\n"
      "برای دریافت اپلیکیشن یا آشنایی با نحوه متصل کردن کانفینگ، از دو گزینه زیر استفاده کنید 👇"),
     ("service_delivery_test_text",
-     "🧪 تست رایگان شما با موفقیت تحویل داده شد\n\n"
+     "🎁 تست رایگان شما با موفقیت تحویل داده شد\n\n"
      "👤 نام کاربری : {service_label}\n\n"
      "🔗 لینک کانفینگ شما:\n{link}\n\n"
      "📋 لینک را کپی کنید و داخل برنامه‌تان جایگذاری کنید.\n\n"
@@ -498,21 +498,15 @@ def _render_with_entities(template: str, entities: list[dict], values: dict) -> 
     return RichText(rendered, out_entities)
 
 
-def _sanitize_service_detail_template(template):
-    """Ignore the obsolete service-detail override left by older bot versions.
-
-    The old template used {status}/{service_name}/{location}/... while the current
-    service-detail renderer supplies the original editable template variables such as
-    {plan}, {total}, {used}, {remaining}, {bar}, {percent}, {expiry}, {link}, and
-    {purchase_date}. Keeping the stale override would make those legacy placeholders
-    appear literally in the user's message.
-    """
+def _sanitize_service_detail_template(key: str, template):
+    """قالب قدیمی جزئیات سرویس را کنار می‌گذارد تا override قدیمی DB دوباره برنگردد."""
+    if key != "service_detail_text":
+        return template
     if not isinstance(template, str):
         return template
-    legacy = ("{status}", "{service_name}", "{location}", "{product}", "{requested_at}", "{delivery_duration}", "{last_connection}", "{last_update}", "{client}", "{remaining_percent}")
-    current = ("{plan}", "{total}", "{used}", "{remaining}", "{bar}", "{percent}", "{expiry}", "{link}", "{purchase_date}")
-    if any(x in template for x in legacy) and not any(x in template for x in current):
-        return TEXTS.get("service_detail_text", template)
+    # این placeholderها متعلق به قالب قدیمی هستند و نباید با قالب اصلی سرویس مخلوط شوند.
+    if "{status}" in template or "{service_name}" in template or "{location}" in template:
+        return TEXTS.get(key, template)
     return template
 
 
@@ -528,18 +522,13 @@ def _sanitize_delivery_template(key: str, template):
 def text(key: str, default: str | None = None, **values) -> str:
     if key not in _CACHE:
         raw_template = db.get_text_override(key, TEXTS.get(key, default or ""))
+        template = _sanitize_delivery_template(key, raw_template)
+        template = _sanitize_service_detail_template(key, template)
         stored_entities = db.get_text_override_entities(key)
-        if key == "service_detail_text":
-            sanitized = _sanitize_service_detail_template(raw_template)
-            if sanitized != raw_template:
-                # The old override and its entity offsets belong to a different
-                # template; never reuse those offsets on the new template.
-                raw_template = sanitized
-                stored_entities = []
-        _CACHE[key] = (
-            _sanitize_delivery_template(key, raw_template),
-            stored_entities,
-        )
+        # اگر override قدیمی را کنار گذاشتیم، entityهای همان override هم دیگر معتبر نیستند.
+        if key == "service_detail_text" and template != raw_template:
+            stored_entities = []
+        _CACHE[key] = (template, stored_entities)
     template, entities = _CACHE[key]
     if values:
         try:

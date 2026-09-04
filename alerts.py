@@ -1,3 +1,5 @@
+from utils import send_photo_rich, edit_caption_rich
+from utils import send_rich
 """
 alerts.py
 بررسی دوره‌ای مصرف و تاریخ انقضای سرویس‌های VIP و اطلاع‌رسانی خودکار به کاربر
@@ -83,7 +85,7 @@ async def _safe_send(bot, user, cfg, text, sticker_key: str | None = None):
     try:
         if sticker_key:
             await send_notification_sticker(bot, int(user["telegram_id"]), sticker_key)
-        await bot.send_message(
+        await send_rich(bot, 
             int(user["telegram_id"]), text,
             reply_markup=back_button(f"viewconfig_{cfg['id']}", t("notif_view_service")),
         )
@@ -131,7 +133,7 @@ async def log_order_to_channel(
     try:
         order_log_channel_id = bot_info.get("order_log_channel_id")
         if order_log_channel_id and str(order_log_channel_id) != "0":
-            await bot.send_message(order_log_channel_id, text)
+            await send_rich(bot, order_log_channel_id, text)
     except Exception:
         logger.exception("ارسال لاگ سفارش به کانال اعتماد ناموفق بود")
 
@@ -188,7 +190,7 @@ async def report_uniquepay_check_cycle(bot, admin_id, checked: int, failed: int)
         "(این هشدار حداکثر هر ۳۰ دقیقه یک‌بار فرستاده می‌شود.)"
     )
     try:
-        await bot.send_message(admin_id, text)
+        await send_rich(bot, admin_id, text)
     except Exception:
         logger.exception("ارسال هشدار قطعی یونیک‌پی به ادمین ناموفق بود")
 
@@ -214,7 +216,7 @@ async def report_uniquepay_create_failure(bot, admin_id):
         "(این هشدار حداکثر هر ۳۰ دقیقه یک‌بار فرستاده می‌شود.)"
     )
     try:
-        await bot.send_message(admin_id, text)
+        await send_rich(bot, admin_id, text)
     except Exception:
         logger.exception("ارسال هشدار قطعی یونیک‌پی به ادمین ناموفق بود")
 

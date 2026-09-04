@@ -22,7 +22,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 from utils import answer_rich, edit_rich
-from text_catalog import text as t
+from text_catalog import text as t, RichText
 import crypto
 import vpn_panel
 import uniquepay
@@ -35,18 +35,36 @@ from handlers.marzban_admin import auto_fulfill_vip_via_marzban, auto_fulfill_cu
 import bot_info
 
 
-def _render_card_invoice_text(key: str, default: str, values: dict, deadline_str: str) -> str:
-    """Render editable invoice body, while keeping the expiry sentence fully system-controlled."""
-    template = db.get_text_override(key, default)
-    try:
-        body = template.format_map(values)
-    except (KeyError, ValueError, IndexError):
-        body = default.format_map(values)
-    expiry = (
+def _render_card_invoice_text(key: str, default: str, values: dict, deadline_str: str) -> RichText:
+    """Render the editable card invoice as RichText so stored Premium/Custom Emoji entities survive."""
+    rich_values = dict(values)
+    # The invoice is sent with real Telegram entities, not HTML parse mode.
+    # Remove any legacy HTML wrappers that older versions injected into values.
+    for field in ("card_number", "card_holder", "plan_name"):
+        value = rich_values.get(field)
+        if isinstance(value, str):
+            rich_values[field] = value.replace("<code>", "").replace("</code>", "")
+
+    body = t(key, default=default, **rich_values)
+    if not isinstance(body, RichText):
+        body = RichText(str(body), getattr(body, "entities", []))
+
+    # Keep the card number copyable without HTML/Markdown.
+    card_number = str(rich_values.get("card_number") or "")
+    if card_number:
+        idx = str(body).find(card_number)
+        if idx >= 0:
+            offset = len(str(body)[:idx].encode("utf-16-le")) // 2
+            length = len(card_number.encode("utf-16-le")) // 2
+            body = RichText(str(body), list(body.entities) + [{
+                "type": "code", "offset": offset, "length": length,
+            }])
+
+    expiry = RichText(
         f"⏱ این شماره کارت و قیمت تا ساعت {deadline_str} (۳۰ دقیقه) معتبر است. "
         "لطفاً تا این ساعت رسید پرداخت را ارسال کنید، وگرنه این فاکتور به‌طور خودکار منقضی و حذف می‌شود."
     )
-    return f"{body}\n\n{expiry}"
+    return body + "\n\n" + expiry
 
 
 PLAN_CARD_INVOICE_DEFAULT = (
@@ -774,21 +792,24 @@ async def pay_with_card(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(UserStates.waiting_card_purchase_receipt)
 
-    await show_menu_with_sticker(callback.bot, callback.message.chat.id, "plan_pay_card", 
-        _render_card_invoice_text(
-            "invoice_plan_card",
-            PLAN_CARD_INVOICE_DEFAULT,
-            {
-                "plan_name": html.escape(plan["name"]),
-                "amount": final_price,
-                # 🆕 فیکس: شماره کارت داخل تگ <code> قرار می‌گیرد تا در تلگرام به‌صورت مونواسپیس
-                # نمایش داده شود و با یک لمس ساده قابل کپی باشد (همراه با parse_mode="HTML" پایین).
-                "card_number": f"<code>{html.escape(bot_info.get('card_number') or '')}</code>",
-                "card_holder": html.escape(bot_info.get("card_holder") or ""),
-            },
-            deadline_str,
-        ),
-        parse_mode="HTML",
+    invoice_text = _render_card_invoice_text(
+        "invoice_plan_card",
+        PLAN_CARD_INVOICE_DEFAULT,
+        {
+            "plan_name": plan["name"],
+            "amount": final_price,
+            "card_number": bot_info.get("card_number") or "",
+            "card_holder": bot_info.get("card_holder") or "",
+        },
+        deadline_str,
+    )
+    await show_menu_with_sticker(
+        callback.bot,
+        callback.message.chat.id,
+        "plan_pay_card",
+        invoice_text,
+        parse_mode=None,
+        entities=getattr(invoice_text, "entities", None),
     )
     await callback.answer()
 

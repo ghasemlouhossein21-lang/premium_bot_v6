@@ -499,12 +499,27 @@ def _render_with_entities(template: str, entities: list[dict], values: dict) -> 
 
 
 def _sanitize_delivery_template(key: str, template):
-    """پاک‌سازی overrideهای قدیمی تحویل که هنوز {admin_message} دارند."""
-    if key not in {"service_delivery_text", "service_delivery_test_text"}:
+    """پاک‌سازی overrideهای قدیمی متن‌ها بدون دست زدن به قالب‌های جدید."""
+    if not isinstance(template, str):
         return template
-    if not isinstance(template, str) or "{admin_message}" not in template:
-        return template
-    return "\n".join(line for line in template.splitlines() if "{admin_message}" not in line)
+
+    # Override قدیمی تحویل سرویس که {admin_message} داشت، دیگر معتبر نیست.
+    if key in {"service_delivery_text", "service_delivery_test_text"} and "{admin_message}" in template:
+        return "\n".join(line for line in template.splitlines() if "{admin_message}" not in line)
+
+    # در نسخه‌های قبلی «جزئیات سرویس» با قالب قدیمی ذخیره شده بود:
+    # {status}/{service_name}/... . اگر این override در DB مانده باشد،
+    # نباید روی قالب اصلی جدید غلبه کند و placeholderهای قدیمی به کاربر نمایش داده شوند.
+    if key == "service_detail_text":
+        legacy_markers = (
+            "{status}", "{service_name}", "{location}", "{product}",
+            "{requested_at}", "{delivery_duration}", "{last_connection}",
+            "{last_update}", "{client}", "وضعیت سرویس :",
+        )
+        if any(marker in template for marker in legacy_markers):
+            return TEXTS.get(key, template)
+
+    return template
 
 
 def text(key: str, default: str | None = None, **values) -> str:

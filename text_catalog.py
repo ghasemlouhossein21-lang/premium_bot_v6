@@ -177,9 +177,6 @@ TEXT_CATEGORIES = OrderedDict({
     ],
     '⚙️ عملیات سرویس': [
         ('config_enable', '▶️ فعال\u200cسازی سرویس'),
-        ('config_disable', '⏸ غیرفعال\u200cسازی سرویس'),
-        ('config_revoke', '🔄 ساخت لینک ساب جدید'),
-        ('config_delete', '🗑 حذف سرویس'),
         ('confirm_delete_yes', '✅ بله، حذف کن'),
         ('confirm_delete_no', '❌ انصراف'),
         ('confirm_disable_yes', '✅ بله، غیرفعال کن'),
@@ -204,6 +201,11 @@ TEXT_CATEGORIES = OrderedDict({
         ('service_revoke_missing', '⚠️ لینک ساب جدید در پاسخ پنل پیدا نشد. با پشتیبانی تماس بگیر.'),
         ('service_revoke_done', '✅ لینک ساب جدید ساخته شد؛ برای دیدنش وارد جزئیات سرویس شو.'),
         ('config_back_service', '🔙 بازگشت به سرویس'),
+    ],
+    '🔧 دکمه‌های مدیریت سرویس': [
+        ('config_disable', '⏸ غیرفعال\u200cسازی سرویس'),
+        ('config_revoke', '🔄 ساخت لینک ساب جدید'),
+        ('config_delete', '🗑 حذف سرویس'),
     ],
     '👥 دعوت دوستان': [
         ('referral_overview', '👥 دعوت دوستان و کسب درآمد 💸\n\nدوستانتو دعوت کن و به\u200cازای هر دعوت موفق، {reward:,} تومان پاداش نقدی بگیر! 🎁\nکافیه لینک اختصاصی\u200cت رو برای دوستات، گروه\u200cها یا کانال\u200cهایی که توشون عضوی بفرستی.\n\n🔗 لینک اختصاصی شما:\n{invite_link}\n\n🔑 کد اختصاصی: {invite_code}\n\n👤 تعداد دعوت: {invited_count}\n✅ دعوت\u200cهای موفق: {successful_invites}\n🔓 مبلغ آزاد شده: {released:,} تومان\n🔒 مبلغ در انتظار: {locked:,} تومان\n\nℹ️ به\u200cازای هر دوستی که با لینک شما عضو شود و یک خرید حجم {min_gb} گیگ یا بیشتر انجام دهد، {reward:,} تومان به\u200cصورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می\u200cشود. (تست رایگان و خریدهای کمتر از {min_gb} گیگ پاداش را آزاد نمی\u200cکنند)\n\n⚠️ لطفاً فقط لینک را برای افراد واقعی ارسال کنید؛ استفاده از اکانت\u200cهای فیک تقلب محسوب شده و جایزه شما لغو می\u200cشود.'),
@@ -496,57 +498,21 @@ def _render_with_entities(template: str, entities: list[dict], values: dict) -> 
     return RichText(rendered, out_entities)
 
 
-
-def _strip_legacy_admin_message(template: str, entities: list[dict]) -> tuple[str, list[dict]]:
-    """حذف خط قدیمی {admin_message} از override دیتابیس و هم‌زمان
-    جابه‌جایی امن offsetهای UTF-16؛ بدون دست‌زدن به Premium Emojiهای خطوط دیگر."""
+def _sanitize_delivery_template(key: str, template):
+    """پاک‌سازی overrideهای قدیمی تحویل که هنوز {admin_message} دارند."""
+    if key not in {"service_delivery_text", "service_delivery_test_text"}:
+        return template
     if not isinstance(template, str) or "{admin_message}" not in template:
-        return template, entities or []
+        return template
+    return "\n".join(line for line in template.splitlines() if "{admin_message}" not in line)
 
-    old_pos = 0
-    new_pos = 0
-    kept_segments = []  # (old_start, old_end, new_start) in UTF-16 units
-    out = []
-    for line in template.splitlines(keepends=True):
-        line_body = line.rstrip("\r\n")
-        units = len(line.encode("utf-16-le")) // 2
-        if "{admin_message}" in line_body:
-            old_pos += units
-            continue
-        out.append(line)
-        body_units = len(line.encode("utf-16-le")) // 2
-        kept_segments.append((old_pos, old_pos + body_units, new_pos))
-        old_pos += body_units
-        new_pos += body_units
-
-    rendered = "".join(out)
-    remapped = []
-    for raw in entities or []:
-        try:
-            e = dict(raw)
-            start = int(e.get("offset", 0))
-            end = start + int(e.get("length", 0))
-            mapped = None
-            for a, b, c in kept_segments:
-                if a <= start and end <= b:
-                    mapped = (c + (start - a), c + (end - a))
-                    break
-            if mapped is None:
-                continue
-            e["offset"] = mapped[0]
-            e["length"] = mapped[1] - mapped[0]
-            remapped.append(e)
-        except Exception:
-            continue
-    return rendered, remapped
 
 def text(key: str, default: str | None = None, **values) -> str:
     if key not in _CACHE:
-        template = db.get_text_override(key, TEXTS.get(key, default or ""))
-        entities = db.get_text_override_entities(key)
-        if key in {"service_delivery_text", "service_delivery_test_text"}:
-            template, entities = _strip_legacy_admin_message(template, entities)
-        _CACHE[key] = (template, entities)
+        _CACHE[key] = (
+            _sanitize_delivery_template(key, db.get_text_override(key, TEXTS.get(key, default or ""))),
+            db.get_text_override_entities(key),
+        )
     template, entities = _CACHE[key]
     if values:
         try:

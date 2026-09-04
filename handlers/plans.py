@@ -1,3 +1,5 @@
+from utils import send_photo_rich, edit_caption_rich
+from utils import send_rich
 """
 handlers/plans.py
 نمایش دسته‌بندی سرویس‌های VIP، اعمال کد تخفیف، خرید سرویس
@@ -26,7 +28,7 @@ import vpn_panel
 import uniquepay
 import payments
 import alerts
-from subscription import fetch_subscription_info, extract_configs, format_bytes, format_expire, usage_bar, days_remaining, is_config_expired, enrich_configs_with_subscription_names
+from subscription import fetch_subscription_info, extract_configs, format_bytes, format_expire, usage_bar, days_remaining, is_config_expired
 from utils import send_admin_task_message, forward_admin_task_message, parse_int_in_range, is_duplicate_action, format_deadline_time, progress_bar, now_tehran_naive, show_menu_with_sticker, get_main_keyboard
 from states import UserStates
 from handlers.marzban_admin import auto_fulfill_vip_via_marzban, auto_fulfill_custom_via_marzban
@@ -205,7 +207,7 @@ async def check_discount(message: types.Message, state: FSMContext):
     discount = db.get_discount(code)
 
     if discount is None or discount["uses"] <= 0 or db.discount_is_expired(discount):
-        await message.answer(
+        await answer_rich(message, 
             t("discount_invalid"),
             reply_markup=back_button("plans"),
         )
@@ -213,7 +215,7 @@ async def check_discount(message: types.Message, state: FSMContext):
         return
 
     if not db.discount_allowed_for_user(discount, message.from_user.id):
-        await message.answer(
+        await answer_rich(message, 
             t("discount_forbidden"),
             reply_markup=back_button("plans"),
         )
@@ -223,7 +225,7 @@ async def check_discount(message: types.Message, state: FSMContext):
     if discount.get("max_uses_per_user"):
         user = db.get_user(message.from_user.id)
         if user and db.user_discount_uses(discount["id"], user["id"]) >= discount["max_uses_per_user"]:
-            await message.answer(
+            await answer_rich(message, 
                 t("discount_limit"),
                 reply_markup=back_button("plans"),
             )
@@ -231,7 +233,7 @@ async def check_discount(message: types.Message, state: FSMContext):
             return
 
     if discount.get("discount_type") == "amount":
-        await message.answer(
+        await answer_rich(message, 
             t("discount_fixed_note"),
             reply_markup=plans_menu(),
         )
@@ -241,7 +243,7 @@ async def check_discount(message: types.Message, state: FSMContext):
     await state.update_data(discount_code=code, discount_percent=discount["percent"])
     plans_note = "" if not db.discount_is_expired(discount) and not db.discount_plans(discount) else \
         " (فقط روی پلن‌های خاص قابل استفاده است)"
-    await message.answer(
+    await answer_rich(message, 
         f"✅ کد تخفیف {discount['percent']}٪ با موفقیت ثبت شد و در خرید بعدی شما (در صورت تطابق پلن) اعمال می‌شود.{plans_note}",
         reply_markup=plans_menu(),
     )
@@ -277,7 +279,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
         return
 
     if discount is None or discount["uses"] <= 0 or db.discount_is_expired(discount):
-        await message.answer(
+        await answer_rich(message, 
             t("discount_invalid"),
             reply_markup=purchase_payment_keyboard(plan_key, show_discount=True),
         )
@@ -285,7 +287,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
         return
 
     if not db.discount_applies_to_plan(discount, plan_key):
-        await message.answer(
+        await answer_rich(message, 
             "❌ این کد تخفیف روی این پلن قابل استفاده نیست.",
             reply_markup=purchase_payment_keyboard(plan_key, show_discount=True),
         )
@@ -293,7 +295,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
         return
 
     if not db.discount_allowed_for_user(discount, message.from_user.id):
-        await message.answer(
+        await answer_rich(message, 
             t("discount_forbidden"),
             reply_markup=purchase_payment_keyboard(plan_key, show_discount=True),
         )
@@ -303,7 +305,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
     if discount.get("max_uses_per_user"):
         user = db.get_user(message.from_user.id)
         if user and db.user_discount_uses(discount["id"], user["id"]) >= discount["max_uses_per_user"]:
-            await message.answer(
+            await answer_rich(message, 
                 t("discount_limit"),
                 reply_markup=purchase_payment_keyboard(plan_key, show_discount=True),
             )
@@ -311,7 +313,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
             return
 
     if discount.get("min_order_amount") and plan["price"] < discount["min_order_amount"]:
-        await message.answer(
+        await answer_rich(message, 
             f"❌ این کد فقط برای خریدهای بالای {discount['min_order_amount']:,} تومان قابل استفاده است.",
             reply_markup=purchase_payment_keyboard(plan_key, show_discount=True),
         )
@@ -326,7 +328,7 @@ async def check_discount_for_plan(message: types.Message, state: FSMContext):
         f"🛒 {plan['name']}\n💰 قیمت نهایی: {final_price:,} تومان\n\n"
         f"روش پرداخت را انتخاب کنید:"
     )
-    await message.answer(text, reply_markup=purchase_payment_keyboard(plan_key, show_discount=False))
+    await answer_rich(message, text, reply_markup=purchase_payment_keyboard(plan_key, show_discount=False))
     await state.set_state(None)
 
 
@@ -475,11 +477,11 @@ async def fulfill_free_test_directly(bot, message: types.Message, user: dict, pl
     همینجا (دقیقاً معادل مسیر موفق پرداخت کیف پول ولی بدون هیچ کسری از موجودی) سرویس
     ساخته و ارسال می‌شود."""
     if is_duplicate_action(f"freetestdirect_{message.from_user.id}"):
-        await message.answer("\u26a0\ufe0f \u0627\u06cc\u0646 \u062f\u0631\u062e\u0648\u0627\u0633\u062a \u062f\u0631 \u062d\u0627\u0644 \u067e\u0631\u062f\u0627\u0632\u0634/\u062b\u0628\u062a\u200c\u0634\u062f\u0647 \u0627\u0633\u062a.")
+        await answer_rich(message, "\u26a0\ufe0f \u0627\u06cc\u0646 \u062f\u0631\u062e\u0648\u0627\u0633\u062a \u062f\u0631 \u062d\u0627\u0644 \u067e\u0631\u062f\u0627\u0632\u0634/\u062b\u0628\u062a\u200c\u0634\u062f\u0647 \u0627\u0633\u062a.")
         return
 
     if db.has_used_free_test(user["id"]):
-        await message.answer(
+        await answer_rich(message, 
             t("free_test_used"),
         )
         return
@@ -807,7 +809,7 @@ async def receive_purchase_receipt(message: types.Message, state: FSMContext):
         return
 
     if not invoice_id or db.consume_invoice(invoice_id) is None:
-        await message.answer(
+        await answer_rich(message, 
             t("invoice_expired_wait"),
             reply_markup=get_main_keyboard(message.from_user.id),
         )
@@ -847,7 +849,7 @@ async def receive_purchase_receipt(message: types.Message, state: FSMContext):
     # پیام بدون reply_markup فرستاده می‌شد و برای کاربری که منوی پایین صفحه‌اشرا جمعشده
     # بود (مثلاً پس از یک پیام دارای دکمه‌ی inline)، منو تا زدن /start دوباره باز
     # نمی‌شد و کاربر/مشتری فکر می‌کرد منو کاملاً گم شده.
-    await message.answer(
+    await answer_rich(message, 
         progress_bar(3, 3) + t("card_receipt_registered"),
         reply_markup=get_main_keyboard(message.from_user.id),
     )
@@ -895,7 +897,6 @@ async def my_configs_vip(callback: types.CallbackQuery):
         return
 
     configs = [c for c in db.get_configs_by_type(user["id"], "vip") if not is_config_expired(c)]
-    await enrich_configs_with_subscription_names(configs)
     if not configs:
         await show_menu_with_sticker(callback.bot, callback.message.chat.id, "my_configs_list_empty", 
             t("vip_configs_empty"),
@@ -951,85 +952,78 @@ async def view_config(callback: types.CallbackQuery):
     # -----------------------------------------------------------------
     try:
 
-        # قالب کامل جزئیات سرویس از text_catalog می‌آید تا همان متن در
-        # «مدیریت متن‌ها» قابل ویرایش باشد و Premium/Custom Emojiهای ذخیره‌شده هم حفظ شوند.
-        usage = None
         try:
             usage = await fetch_subscription_info(decrypted)
         except Exception:
             logger.exception("خطای غیرمنتظره در fetch_subscription_info برای cfg_id=%s", cfg_id)
+            usage = None
 
-        total = used = remaining = None
+        total = used = remaining_bytes = None
         percent = 0
         bar = usage_bar(0)
-        expiry = cfg.get("expiry") or "—"
+        expiry = cfg.get("expiry") or "-"
         expiry_status = ""
 
         if usage:
             total = usage.get("total")
             used = (usage.get("upload") or 0) + (usage.get("download") or 0)
-            remaining = (total - used) if total is not None else None
+            remaining_bytes = (total - used) if total else None
+            expiry = format_expire(usage.get("expire"))
             if total:
                 percent = min(100, round(used / total * 100))
                 bar = usage_bar(percent)
-            expiry = format_expire(usage.get("expire"))
             remaining_days = days_remaining(usage.get("expire"))
             if remaining_days is not None:
                 expiry_status = t("config_expired") if remaining_days <= 0 else t("config_days_left", days=remaining_days)
         elif cfg.get("expiry"):
+            expiry = cfg["expiry"]
             try:
-                exp_dt = datetime.strptime(str(cfg["expiry"])[:10], "%Y-%m-%d")
-                remaining_days = (exp_dt - now_tehran_naive()).days
-                expiry_status = t("config_expired") if remaining_days <= 0 else t("config_days_left", days=remaining_days)
+                _exp_dt = datetime.strptime(str(cfg["expiry"])[:10], "%Y-%m-%d")
+                _remaining_days = (_exp_dt - now_tehran_naive()).days
+                expiry_status = t("config_expired") if _remaining_days <= 0 else t("config_days_left", days=_remaining_days)
             except Exception:
                 expiry_status = ""
 
-        rendered = t(
+        text = t(
             "service_detail_text",
-            plan=cfg.get("plan", "—"),
-            total=format_bytes(total) if total is not None else "—",
-            used=format_bytes(used) if used is not None else "—",
-            remaining=format_bytes(remaining) if remaining is not None else "—",
+            plan=cfg.get("plan", ""),
+            total=format_bytes(total) if total else "-",
+            used=format_bytes(used or 0),
+            remaining=format_bytes(remaining_bytes) if remaining_bytes is not None else "-",
             bar=bar,
             percent=percent,
             expiry=expiry,
             expiry_status=expiry_status,
             link=decrypted,
-            purchase_date=cfg.get("created_at", "—"),
+            purchase_date=cfg.get("created_at", "-"),
         )
 
         kb = config_detail_keyboard(cfg_id, sub_link_url=sub_url, has_qr=bool(cfg.get("qr_file_id")), service_id=cfg.get("service_id"), disabled=bool(cfg.get("disabled")))
-        rich_entities = getattr(rendered, "entities", None)
         try:
-            await show_menu_with_sticker(
-                callback.bot,
-                callback.message.chat.id,
-                "config_detail",
-                rendered,
-                parse_mode=None if rich_entities else "Markdown",
-                reply_markup=kb,
-                entities=rich_entities,
-            )
+            await show_menu_with_sticker(callback.bot, callback.message.chat.id, "config_detail", text, parse_mode="Markdown", reply_markup=kb)
         except Exception as e:
+            # اگر مارک‌داون به هر دلیلی (مثلاً کاراکتر خاص داخل لینک ساب) شکست
+            # بخورد، کاربر نباید بدون هیچ نتیجه‌ای رها شود؛ متن رو بدون فرمت دوباره
+            # امتحان می‌کنیم. "message is not modified" را هم بی‌خطر نادید�� می‌گیریم
+            # (یعنی محتوای جدید دقیقاً همون محتوای قبلی بود؛ کاربر همون اطلاعات رو
+            # روی صفحه می‌بیند، پس نیازی به هشدار نیست).
             if "message is not modified" in str(e).lower():
                 pass
             else:
-                logger.exception("خطا در نمایش جزئیات سرویس برای cfg_id=%s", cfg_id)
+                logger.exception("خطا در ویرایش پیام جزئیات سرویس برای cfg_id=%s", cfg_id)
                 try:
-                    await show_menu_with_sticker(
-                        callback.bot, callback.message.chat.id, "config_detail",
-                        str(rendered).replace("`", ""),
-                        parse_mode=None, reply_markup=kb, entities=None,
-                    )
+                    await show_menu_with_sticker(callback.bot, callback.message.chat.id, "config_detail", text, parse_mode=None, reply_markup=kb)
                 except Exception:
-                    logger.exception("خطا در fallback نمایش جزئیات سرویس برای cfg_id=%s", cfg_id)
-
+                    logger.exception("خطا در ارسال fallback بدون فرمت برای cfg_id=%s", cfg_id)
+                    await answer_rich(callback.message, 
+                        t("config_detail_error")
+                    )
     except Exception:
         # هر خطای غیرمنتظره‌ی دیگری (خارج از مسیرهای بالا، مثلاً در ساخت متن یا کیبورد) هم اینجا گرفته می‌شود
         # تا کاربر هرگز روی همون پیام لیست قبلی «گیر» نکند و همیشه پیام یا خطای واضحی ببیند.
         logger.exception("خطای کلی غیرمنتظره در نمایش جزئیات سرویس برای cfg_id=%s", cfg_id)
         try:
-            await callback.message.answer(
+            await answer_rich(callback.message, 
                 t("config_detail_error"),
                 reply_markup=back_button("my_configs_vip"),
             )
@@ -1054,7 +1048,7 @@ async def _send_configs_safely(callback: types.CallbackQuery, configs: list[str]
 
     async def _send(text: str, parse_mode: str | None):
         try:
-            await callback.message.answer(text, parse_mode=parse_mode)
+            await answer_rich(callback.message, text, parse_mode=parse_mode)
             return True
         except Exception:
             logger.exception("خطا در ارسال پیام کانفیگ (parse_mode=%s)", parse_mode)
@@ -1065,7 +1059,7 @@ async def _send_configs_safely(callback: types.CallbackQuery, configs: list[str]
             return
         # اگر مارک‌داون شکست خورد، همون متن رو بدون فرمت دوباره امتحان کن
         if not await _send(text_plain, None):
-            await callback.message.answer(
+            await answer_rich(callback.message, 
                 t("config_delivery_error")
             )
 
@@ -1145,7 +1139,7 @@ async def mirror_configs(callback: types.CallbackQuery):
         await answer_rich(callback.message, t("subscription_unavailable"))
         return
     if not configs:
-        await callback.message.answer(
+        await answer_rich(callback.message, 
             "⚠️ لینک ساب باز شد ولی هیچ کانفیگ تکی‌ای داخلش پیدا نشد.\n"
             "برای استفاده، همون لینک ساب رو مستقیم داخل اپ V2Ray/Clash وارد کنید."
         )
@@ -1177,7 +1171,7 @@ async def view_config_qr(callback: types.CallbackQuery):
 
     await callback.answer()
     try:
-        await callback.bot.send_photo(callback.from_user.id, cfg["qr_file_id"], caption=f"🖼 کیوآرکد {cfg['plan']}")
+        await send_photo_rich(callback.bot, callback.from_user.id, cfg["qr_file_id"], caption=f"🖼 کیوآرکد {cfg['plan']}")
     except Exception:
         await answer_rich(callback, t("qr_failed"), show_alert=True)
 
@@ -1248,7 +1242,7 @@ async def user_service_disable_confirm(callback: types.CallbackQuery):
     if cfg is None or cfg["user_id"] != user["id"] or cfg.get("deleted") or not cfg.get("service_id"):
         await answer_rich(callback, t("service_disable_not_available"), show_alert=True)
         return
-    await callback.message.answer(
+    await answer_rich(callback.message, 
         t("service_disable_confirm"),
         reply_markup=confirm_disable_service_keyboard(cfg_id),
     )
@@ -1276,7 +1270,7 @@ async def user_service_disable_apply(callback: types.CallbackQuery):
         await answer_rich(callback.message, t("service_disable_failed", msg=msg))
         return
     db.set_config_disabled(cfg_id, True)
-    await callback.message.answer(
+    await answer_rich(callback.message, 
         t("service_disabled"),
         reply_markup=back_button(f"viewconfig_{cfg_id}", t("config_back_service")),
     )
@@ -1303,7 +1297,7 @@ async def user_service_enable_apply(callback: types.CallbackQuery):
         await answer_rich(callback.message, t("service_enable_failed", msg=msg))
         return
     db.set_config_disabled(cfg_id, False)
-    await callback.message.answer(
+    await answer_rich(callback.message, 
         t("service_enabled"),
         reply_markup=back_button(f"viewconfig_{cfg_id}", t("config_back_service")),
     )
@@ -1324,7 +1318,7 @@ async def user_service_revoke_sub_confirm(callback: types.CallbackQuery):
     if cfg is None or cfg["user_id"] != user["id"] or cfg.get("deleted") or not cfg.get("service_id"):
         await answer_rich(callback, t("service_revoke_not_available"), show_alert=True)
         return
-    await callback.message.answer(
+    await answer_rich(callback.message, 
         t("service_revoke_confirm"),
         reply_markup=confirm_revoke_sub_keyboard(cfg_id),
     )
@@ -1356,7 +1350,7 @@ async def user_service_revoke_sub_apply(callback: types.CallbackQuery):
         await answer_rich(callback.message, t("service_revoke_missing"))
         return
     db.update_config_link(cfg_id, crypto.encrypt_config(link))
-    await callback.message.answer(
+    await answer_rich(callback.message, 
         t("service_revoke_done"),
         reply_markup=back_button(f"viewconfig_{cfg_id}", t("config_back_service")),
     )

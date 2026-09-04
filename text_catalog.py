@@ -497,12 +497,56 @@ def _render_with_entities(template: str, entities: list[dict], values: dict) -> 
 
 
 
+def _strip_legacy_admin_message(template: str, entities: list[dict]) -> tuple[str, list[dict]]:
+    """حذف خط قدیمی {admin_message} از override دیتابیس و هم‌زمان
+    جابه‌جایی امن offsetهای UTF-16؛ بدون دست‌زدن به Premium Emojiهای خطوط دیگر."""
+    if not isinstance(template, str) or "{admin_message}" not in template:
+        return template, entities or []
+
+    old_pos = 0
+    new_pos = 0
+    kept_segments = []  # (old_start, old_end, new_start) in UTF-16 units
+    out = []
+    for line in template.splitlines(keepends=True):
+        line_body = line.rstrip("\r\n")
+        units = len(line.encode("utf-16-le")) // 2
+        if "{admin_message}" in line_body:
+            old_pos += units
+            continue
+        out.append(line)
+        body_units = len(line.encode("utf-16-le")) // 2
+        kept_segments.append((old_pos, old_pos + body_units, new_pos))
+        old_pos += body_units
+        new_pos += body_units
+
+    rendered = "".join(out)
+    remapped = []
+    for raw in entities or []:
+        try:
+            e = dict(raw)
+            start = int(e.get("offset", 0))
+            end = start + int(e.get("length", 0))
+            mapped = None
+            for a, b, c in kept_segments:
+                if a <= start and end <= b:
+                    mapped = (c + (start - a), c + (end - a))
+                    break
+            if mapped is None:
+                continue
+            e["offset"] = mapped[0]
+            e["length"] = mapped[1] - mapped[0]
+            remapped.append(e)
+        except Exception:
+            continue
+    return rendered, remapped
+
 def text(key: str, default: str | None = None, **values) -> str:
     if key not in _CACHE:
-        _CACHE[key] = (
-            db.get_text_override(key, TEXTS.get(key, default or "")),
-            db.get_text_override_entities(key),
-        )
+        template = db.get_text_override(key, TEXTS.get(key, default or ""))
+        entities = db.get_text_override_entities(key)
+        if key in {"service_delivery_text", "service_delivery_test_text"}:
+            template, entities = _strip_legacy_admin_message(template, entities)
+        _CACHE[key] = (template, entities)
     template, entities = _CACHE[key]
     if values:
         try:

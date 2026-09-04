@@ -1,10 +1,11 @@
+from utils import send_photo_rich, edit_caption_rich
+from utils import send_rich
 """
 handlers/wallet.py
 نمایش کیف پول (موجودی آزاد / موجودی در انتظار)، تاریخچه تراکنش‌ها،
 و فرایند شارژ کیف پول (انتخاب مبلغ یا مبلغ دلخواه + ارسال رسید).
 """
 
-import html
 import logging
 
 from aiogram import Router, F, types
@@ -12,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 from utils import answer_rich, edit_rich
-from text_catalog import text as t
+from text_catalog import text as t, RichText
 import uniquepay
 import payments
 import alerts
@@ -32,24 +33,24 @@ WALLET_CARD_INVOICE_DEFAULT = (
 )
 
 
-def _render_wallet_card_invoice_text(deadline_str: str, amount: int) -> str:
+def _render_wallet_card_invoice_text(deadline_str: str, amount: int) -> RichText:
+    """Render wallet card invoice through RichText so Premium Emoji entities survive."""
     template = db.get_text_override("invoice_wallet_card", WALLET_CARD_INVOICE_DEFAULT)
-    values = {
-        "amount": amount,
-        # 🆕 فیکس: شماره کارت داخل تگ <code> قرار می‌گیرد تا در تلگرام به‌صورت مونواسپیس
-        # نمایش داده شود و با یک لمس ساده قابل کپی باشد (همراه با parse_mode="HTML" در محل ارسال).
-        "card_number": f"<code>{html.escape(bot_info.get('card_number') or '')}</code>",
-        "card_holder": html.escape(bot_info.get("card_holder") or ""),
-    }
-    try:
-        body = template.format_map(values)
-    except (KeyError, ValueError, IndexError):
-        body = WALLET_CARD_INVOICE_DEFAULT.format_map(values)
-    expiry = (
+    # Prefer the catalog renderer; it preserves entities stored alongside overrides.
+    body = t(
+        "invoice_wallet_card",
+        default=template,
+        amount=amount,
+        card_number=bot_info.get("card_number") or "",
+        card_holder=bot_info.get("card_holder") or "",
+    )
+    expiry = RichText(
         f"⏱ این شماره کارت و مبلغ تا ساعت {deadline_str} (۳۰ دقیقه) معتبر است. "
         "لطفاً تا این ساعت رسید پرداخت را ارسال کنید، وگرنه این فاکتور به‌طور خودکار منقضی و حذف می‌شود."
     )
-    return f"{body}\n\n{expiry}"
+    if isinstance(body, RichText):
+        return body + "\n\n" + expiry
+    return RichText(str(body) + "\n\n" + str(expiry))
 
 
 from config import (
@@ -333,7 +334,7 @@ async def finalize_wallet_charge_online_payment(bot, payment: dict) -> int | Non
         raise
 
     try:
-        await bot.send_message(
+        await send_rich(bot, 
             ADMIN_ID,
             f"💳 شارژ کیف پول (پرداخت آنلاین - یونیک‌پی)!\n\n"
             f"🆔 {payment['telegram_id']}\n"
@@ -358,7 +359,7 @@ async def receive_receipt(message: types.Message, state: FSMContext):
         return
 
     if not wallet_card_invoice_id or db.consume_invoice(wallet_card_invoice_id) is None:
-        await message.answer(
+        await answer_rich(message, 
             t("charge_receipt_expired"),
             reply_markup=get_main_keyboard(message.from_user.id),
         )

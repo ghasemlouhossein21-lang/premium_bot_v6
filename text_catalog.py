@@ -127,7 +127,7 @@ TEXT_CATEGORIES = OrderedDict({
         ('my_configs_has', '📱 سرویس\u200cهای شما\n\nکدوم دسته رو می\u200cخوای ببینی؟ 👇'),
         ('vip_configs_empty', 'شما هنوز هیچ سرویس VIPی خریداری نکرده\u200cاید.'),
         ('vip_configs_has', 'سرویس\u200cهای VIP شما\n\nبرای مشاهده\u200cی لینک سابسکریپشن و مدیریت هرکدام، روی نام آن بزنید 👇'),
-        ('service_detail_text', '📦 {plan}\n\n📊وضعیت مصرف (لحظه\u200cای):\n💿 حجم کل: {total}\n📲 مصرف\u200cشده: {used}\n📱 باقی\u200cمانده: {remaining}\n\n{bar} {percent}٪ مصرف شده\n\n⏰ تاریخ انقضا: {expiry}\n{expiry_status}\n\n🔗 این لینک ساب (Subscription) شماست؛ می\u200cتوانید کانفیگ\u200cهای خودتان را از داخل آن بردارید و حجم مصرفی\u200cتان را مدیریت کنید:\n\n`{link}`\n\n📆 تاریخ خرید: {purchase_date}'),
+        ('service_detail_text', '📦 {plan}\n\n📊وضعیت مصرف (لحظه‌ای):\n💿 حجم کل: {total}\n📲 مصرف‌شده: {used}\n📱 باقی‌مانده: {remaining}\n\n{bar} {percent}٪ مصرف شده\n\n⏰ تاریخ انقضا: {expiry}\n{expiry_status}\n\n🔗 این لینک ساب (Subscription) شماست؛ می‌توانید کانفیگ‌های خودتان را از داخل آن بردارید و حجم مصرفی‌تان را مدیریت کنید:\n\n`{link}`\n\n📆 تاریخ خرید: {purchase_date}'),
         ('config_detail_error', '❌ خطا در نمایش جزئیات سرویس. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'),
         ('config_status_title', '📊 وضعیت مصرف (لحظه\u200cای):'),
         ('config_total', '   • حجم کل: {value}'),
@@ -177,6 +177,9 @@ TEXT_CATEGORIES = OrderedDict({
     ],
     '⚙️ عملیات سرویس': [
         ('config_enable', '▶️ فعال\u200cسازی سرویس'),
+        ('config_disable', '⏸ غیرفعال\u200cسازی سرویس'),
+        ('config_revoke', '🔄 ساخت لینک ساب جدید'),
+        ('config_delete', '🗑 حذف سرویس'),
         ('confirm_delete_yes', '✅ بله، حذف کن'),
         ('confirm_delete_no', '❌ انصراف'),
         ('confirm_disable_yes', '✅ بله، غیرفعال کن'),
@@ -201,11 +204,6 @@ TEXT_CATEGORIES = OrderedDict({
         ('service_revoke_missing', '⚠️ لینک ساب جدید در پاسخ پنل پیدا نشد. با پشتیبانی تماس بگیر.'),
         ('service_revoke_done', '✅ لینک ساب جدید ساخته شد؛ برای دیدنش وارد جزئیات سرویس شو.'),
         ('config_back_service', '🔙 بازگشت به سرویس'),
-    ],
-    '🔧 دکمه‌های مدیریت سرویس': [
-        ('config_disable', '⏸ غیرفعال\u200cسازی سرویس'),
-        ('config_revoke', '🔄 ساخت لینک ساب جدید'),
-        ('config_delete', '🗑 حذف سرویس'),
     ],
     '👥 دعوت دوستان': [
         ('referral_overview', '👥 دعوت دوستان و کسب درآمد 💸\n\nدوستانتو دعوت کن و به\u200cازای هر دعوت موفق، {reward:,} تومان پاداش نقدی بگیر! 🎁\nکافیه لینک اختصاصی\u200cت رو برای دوستات، گروه\u200cها یا کانال\u200cهایی که توشون عضوی بفرستی.\n\n🔗 لینک اختصاصی شما:\n{invite_link}\n\n🔑 کد اختصاصی: {invite_code}\n\n👤 تعداد دعوت: {invited_count}\n✅ دعوت\u200cهای موفق: {successful_invites}\n🔓 مبلغ آزاد شده: {released:,} تومان\n🔒 مبلغ در انتظار: {locked:,} تومان\n\nℹ️ به\u200cازای هر دوستی که با لینک شما عضو شود و یک خرید حجم {min_gb} گیگ یا بیشتر انجام دهد، {reward:,} تومان به\u200cصورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می\u200cشود. (تست رایگان و خریدهای کمتر از {min_gb} گیگ پاداش را آزاد نمی\u200cکنند)\n\n⚠️ لطفاً فقط لینک را برای افراد واقعی ارسال کنید؛ استفاده از اکانت\u200cهای فیک تقلب محسوب شده و جایزه شما لغو می\u200cشود.'),
@@ -333,7 +331,7 @@ TEXT_CATEGORIES.setdefault("📦 تحویل سرویس", []).extend([
      "📋 لینک را کپی کنید و داخل برنامه‌تان جایگذاری کنید.\n\n"
      "برای دریافت اپلیکیشن یا آشنایی با نحوه متصل کردن کانفینگ، از دو گزینه زیر استفاده کنید 👇"),
     ("service_delivery_test_text",
-     "🎁 تست رایگان شما با موفقیت تحویل داده شد\n\n"
+     "🧪 تست رایگان شما با موفقیت تحویل داده شد\n\n"
      "👤 نام کاربری : {service_label}\n\n"
      "🔗 لینک کانفینگ شما:\n{link}\n\n"
      "📋 لینک را کپی کنید و داخل برنامه‌تان جایگذاری کنید.\n\n"
@@ -498,37 +496,24 @@ def _render_with_entities(template: str, entities: list[dict], values: dict) -> 
     return RichText(rendered, out_entities)
 
 
+
 def _sanitize_service_detail_template(key: str, template):
-    """قالب قدیمی جزئیات سرویس را کنار می‌گذارد تا override قدیمی DB دوباره برنگردد."""
-    if key != "service_detail_text":
+    """قالب قدیمی جزئیات سرویس را کنار می‌گذارد تا Override قبلی DB فرم قدیمی را برنگرداند."""
+    if key != "service_detail_text" or not isinstance(template, str):
         return template
-    if not isinstance(template, str):
-        return template
-    # این placeholderها متعلق به قالب قدیمی هستند و نباید با قالب اصلی سرویس مخلوط شوند.
-    if "{status}" in template or "{service_name}" in template or "{location}" in template:
+    if any(token in template for token in ("{status}", "{service_name}", "{location}", "{requested_at}", "{delivery_duration}", "{last_connection}", "{last_update}", "{client}")):
         return TEXTS.get(key, template)
     return template
-
-
-def _sanitize_delivery_template(key: str, template):
-    """پاک‌سازی overrideهای قدیمی تحویل که هنوز {admin_message} دارند."""
-    if key not in {"service_delivery_text", "service_delivery_test_text"}:
-        return template
-    if not isinstance(template, str) or "{admin_message}" not in template:
-        return template
-    return "\n".join(line for line in template.splitlines() if "{admin_message}" not in line)
 
 
 def text(key: str, default: str | None = None, **values) -> str:
     if key not in _CACHE:
         raw_template = db.get_text_override(key, TEXTS.get(key, default or ""))
-        template = _sanitize_delivery_template(key, raw_template)
-        template = _sanitize_service_detail_template(key, template)
-        stored_entities = db.get_text_override_entities(key)
-        # اگر override قدیمی را کنار گذاشتیم، entityهای همان override هم دیگر معتبر نیستند.
-        if key == "service_detail_text" and template != raw_template:
-            stored_entities = []
-        _CACHE[key] = (template, stored_entities)
+        template = _sanitize_service_detail_template(key, raw_template)
+        entities = db.get_text_override_entities(key)
+        if template != raw_template:
+            entities = []
+        _CACHE[key] = (template, entities)
     template, entities = _CACHE[key]
     if values:
         try:

@@ -1,3 +1,5 @@
+from utils import send_photo_rich, edit_caption_rich
+from utils import send_rich
 """
 handlers/start.py
 دستور /start، بررسی عضویت اجباری در کانال‌ها، و پردازش لینک دعوت اختصاصی
@@ -81,7 +83,7 @@ async def _notify_referrer_of_new_join(bot, user: dict):
         return
 
     try:
-        await bot.send_message(
+        await send_rich(bot, 
             int(referrer["telegram_id"]),
             f"🎉 یک عضو جدید از طریق لینک دعوت شما وارد ربات شد و عضویتش تأیید شد!\n\n"
             f"👤 نام: {user['name']}\n"
@@ -104,10 +106,6 @@ def _welcome_text_and_entities(first_name: str):
         template = template.replace("{name}", first_name, 1)
         entities = adjust_entities_for_replacement(entities, original, template, "{name}")
 
-    template += (
-        "\n\nاز منوی پایین صفحه می‌توانید به همه‌ی امکانات ربات دسترسی داشته باشید."
-        "\n\nلطفاً یکی از گزینه‌ها را انتخاب کنید 👇"
-    )
     return template, entities
 
 
@@ -126,7 +124,7 @@ def _is_admin(user_id: int) -> bool:
 async def _send_guaranteed_start_fallback(bot, chat_id: int, user_id: int) -> None:
     """🆕 فیکس نهایی برای /start: درخواست کاربر این است که /start به هر نحوی کار کند. قبلاً هر خطای پیش‌بینی‌نشده‌ای در مسیر /start باعث می‌شد کاربر هیچ پاسخی دریافت نکند. این تابع آخرین لایه‌ی دفاع است: حتی اگر هر کدام از منطق اصلی /start شکست بخورد (مثلاً دیتابیس، متن قابل‌ویرایش، کیبورد/دکمه، یا هر خطای ناشناخته‌ی دیگر)، بازهم تلاش می‌کند حداقل یک پیام ساده با کیبورد اصلی برسد، تا کاربر بتواند حداقل از دکمه‌های پایین صفحه ادامه بدهد."""
     try:
-        await bot.send_message(
+        await send_rich(bot, 
             chat_id,
             "🏠 خوش آمدید!\n\nاز دکمه‌های پایین صفحه می‌توانید به امکانات ربات دسترسی داشته باشید.",
             reply_markup=get_main_keyboard(user_id),
@@ -135,7 +133,7 @@ async def _send_guaranteed_start_fallback(bot, chat_id: int, user_id: int) -> No
     except Exception:
         logger.exception("لایه‌ی اول fallback نهایی /start هم شکست خورد")
     try:
-        await bot.send_message(chat_id, "🏠 خوش آمدید!")
+        await send_rich(bot, chat_id, "🏠 خوش آمدید!")
     except Exception:
         logger.exception("حتی ساده‌ترین پیام fallback هم برای /start ارسال نشد (احتمالاً کاربر ربات را بلاک کرده است)")
 
@@ -189,7 +187,7 @@ async def _start_impl(message: types.Message, command: CommandObject, state: FSM
             show_main_keyboard=False,
         )
         if debug:
-            await message.answer("🔎 دیباگ عضویت (فقط ادمین می‌بیند):\n" + "\n".join(debug))
+            await answer_rich(message, "🔎 دیباگ عضویت (فقط ادمین می‌بیند):\n" + "\n".join(debug))
         return
 
     if db.is_user_blocked(user_id):
@@ -206,7 +204,7 @@ async def _start_impl(message: types.Message, command: CommandObject, state: FSM
         await _notify_referrer_of_new_join(message.bot, user)
 
     if _is_admin(user_id):
-        await message.answer(
+        await answer_rich(message, 
             t("start_admin_welcome"),
             reply_markup=_admin_reply_kb_for(user_id),
         )
@@ -241,7 +239,7 @@ async def _check_join_impl(callback: types.CallbackQuery, state: FSMContext):
     if not_joined:
         await answer_rich(callback, t("start_join_not_done"), show_alert=True)
         if debug:
-            await callback.message.answer("🔎 دیباگ عضویت (فقط ادمین می‌بیند):\n" + "\n".join(debug))
+            await answer_rich(callback.message, "🔎 دیباگ عضویت (فقط ادمین می‌بیند):\n" + "\n".join(debug))
         return
 
     if db.is_user_blocked(callback.from_user.id):
@@ -260,18 +258,18 @@ async def _check_join_impl(callback: types.CallbackQuery, state: FSMContext):
         await _notify_referrer_of_new_join(callback.bot, user)
 
     if _is_admin(callback.from_user.id):
-        await callback.message.edit_text("👨‍💻 به پنل مدیریت خوش آمدید! همه‌ی امکانات مدیریتی از منوی پایین صفحه قابل دسترسی است ✅")
-        await callback.message.answer("منوی مدیریتی فعال شد:", reply_markup=_admin_reply_kb_for(callback.from_user.id))
+        await edit_rich(callback.message, "👨‍💻 به پنل مدیریت خوش آمدید! همه‌ی امکانات مدیریتی از منوی پایین صفحه قابل دسترسی است ✅")
+        await answer_rich(callback.message, "منوی مدیریتی فعال شد:", reply_markup=_admin_reply_kb_for(callback.from_user.id))
     else:
         # 🆕 فیکس: این مسیر (تأیید عضویت پس از عضو کانال‌ها) مستقیماً با edit_text فرستاده می‌شد و از محافظتی که در show_menu_with_sticker اضافه شده بود عبور نمی‌کرد، پس اگر متن خوش‌آمدگویی (welcome_text) توسط ادمین طولانی ذخیره می‌شد، همینجا هم تلگرام خطای «MESSAGE_TOO_LONG» برمی‌گرداند و کاربر بعد از تأیید عضویت هم با ارور مواجه می‌شد (دقیقاً همان اروری که گزارش شد). حالا اگر این خطا رخ بدهد، متن کوتاه‌شده دوباره فرستاده می‌شود.
         welcome_text, welcome_entities = _welcome_text_and_entities(callback.from_user.first_name)
         try:
-            await callback.message.edit_text(welcome_text, entities=welcome_entities)
+            await edit_rich(callback.message, welcome_text, entities=welcome_entities)
         except TelegramBadRequest as e:
             if is_message_too_long_error(e):
                 logger.error("متن خوش‌آمدگویی check_join از سقف تلگرام بیشتر بود؛ نسخه‌ی کوتاه‌شده بدون Entity ارسال می‌شود.")
                 safe_text, safe_entities = truncate_text_and_entities(welcome_text, welcome_entities)
-                await callback.message.edit_text(safe_text, entities=safe_entities)
+                await edit_rich(callback.message, safe_text, entities=safe_entities)
             else:
                 raise
         await show_menu_with_sticker(

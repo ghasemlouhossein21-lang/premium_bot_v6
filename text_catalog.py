@@ -127,7 +127,7 @@ TEXT_CATEGORIES = OrderedDict({
         ('my_configs_has', '📱 سرویس\u200cهای شما\n\nکدوم دسته رو می\u200cخوای ببینی؟ 👇'),
         ('vip_configs_empty', 'شما هنوز هیچ سرویس VIPی خریداری نکرده\u200cاید.'),
         ('vip_configs_has', 'سرویس\u200cهای VIP شما\n\nبرای مشاهده\u200cی لینک سابسکریپشن و مدیریت هرکدام، روی نام آن بزنید 👇'),
-        ('service_detail_text', '📊وضعیت سرویس : {status}\n👤 نام سرویس : {service_name}\n\n\n🌍 موقعیت سرویس : {location}\n🗂 نام محصول : {product}\n\n\n🔋 ترافیک : {total}\n📥 حجم مصرفی : {used}\n💢 حجم باقی مانده : {remaining} ({remaining_percent}%)\n\n\n📅 تاریخ اتمام : {expiry}\n\n\n🕐 زمان ثبت درخواست : {requested_at}\n⏱ مدت زمان تأیید و تحویل : {delivery_duration}\n\n\n📶 اخرین زمان اتصال : {last_connection}\n🔄 اخرین زمان آپدیت لینک اشتراک : {last_update}\n#️⃣ کلاینت متصل شده : {client}\n\n💡 برای قطع دسترسی دیگران کافیست روی گزینه «تغییر لینک» کلیک کنید.'),
+        ('service_detail_text', '📦 {plan}\n\n📊 وضعیت مصرف (لحظه\u200cای):\n💿 حجم کل: {total}\n📲 مصرف\u200cشده: {used}\n📱 باقی\u200cمانده: {remaining}\n\n{bar} {percent}٪ مصرف شده\n\n⏰ تاریخ انقضا: {expiry}\n{expiry_status}\n\n🔗 این لینک ساب (Subscription) شماست؛ می\u200cتوانید کانفیگ\u200cهای خودتان را از داخل آن بردارید و حجم مصرفی\u200cتان را مدیریت کنید:\n\n`{link}`\n\n📆 تاریخ خرید: {purchase_date}'),
         ('config_detail_error', '❌ خطا در نمایش جزئیات سرویس. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'),
         ('config_status_title', '📊 وضعیت مصرف (لحظه\u200cای):'),
         ('config_total', '   • حجم کل: {value}'),
